@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd \"C:\\\\Users\\\\puspo\\\\Downloads\\\\security-intelligence-platform\" && mkdir core modules api web 2>&1; echo \"done\")",
+      "Bash(copy scanner.py core\\\\scanner.py)",
+      "Bash(copy recon.py core\\\\recon.py)",
+      "Bash(copy web_scanner.py core\\\\web_scanner.py)",
+      "Bash(copy binary_analyzer.py core\\\\binary_analyzer.py)",
+      "Bash(copy sqli.py modules\\\\sqli.py)",
+      "PowerShell(cd \"C:\\\\Users\\\\puspo\\\\Downloads\\\\security-intelligence-platform\"; $env:PYTHONIOENCODING=\"utf-8\"; python cli.py --help 2>&1)",
+      "PowerShell(python -c \"import urllib.request; print\\(urllib.request.urlopen\\('http://localhost:5000/api/health'\\).read\\(\\).decode\\(\\)\\)\" 2>&1)",
+      "PowerShell(cd \"C:\\\\Users\\\\puspo\\\\Downloads\\\\security-intelligence-platform\"; $env:PYTHONIOENCODING=\"utf-8\"; Start-Process python -ArgumentList \"cli.py\",\"server\" -WorkingDirectory \"C:\\\\Users\\\\puspo\\\\Downloads\\\\security-intelligence-platform\" -PassThru | Select-Object Id)",
+      "PowerShell($proc = Start-Process python -ArgumentList \"wsgi.py\" -WorkingDirectory \"C:\\\\Users\\\\puspo\\\\Downloads\\\\security-intelligence-platform\" -PassThru -WindowStyle Hidden; Write-Output \"Started PID: $\\($proc.Id\\)\")",
+      "PowerShell(python -c \"import urllib.request; print\\(urllib.request.urlopen\\('http://localhost:5000/'\\).getcode\\(\\)\\)\" 2>&1)",
+      "PowerShell(Get-Process python -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep 1; $proc = Start-Process python -ArgumentList \"wsgi.py\" -WorkingDirectory \"C:\\\\Users\\\\puspo\\\\Downloads\\\\security-intelligence-platform\" -PassThru -WindowStyle Hidden; Write-Output \"Started PID: $\\($proc.Id\\)\")",
+      "PowerShell(python -c \"import urllib.request; r=urllib.request.urlopen\\('http://localhost:5000/'\\); print\\('HTTP', r.getcode\\(\\)\\); print\\(r.read\\(200\\).decode\\('utf-8','replace'\\)\\)\" 2>&1)"
+    ]
+  }
+}

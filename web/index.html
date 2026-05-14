@@ -524,8 +524,10 @@
             <input type="text" id="fullScanTarget" placeholder="example.com or https://app.target.com">
           </div>
         </div>
-        <button class="btn btn-primary" onclick="runFullScan()">▶ Run Full Scan</button>
+        <button class="btn btn-primary" id="fullScanBtn" onclick="runFullScan()">▶ Run Full Scan</button>
       </div>
+
+      <div class="card" id="fullScanResult" style="display:none"></div>
 
       <div class="card">
         <div class="card-title">📋 Scan History</div>
@@ -1239,8 +1241,36 @@ async function runFullScan() {
   if (!target) return alert('Enter a target');
   if (!await checkAPI()) return;
 
-  // Switch to port scanner panel and show message
-  alert(`Full scan started on: ${target}\n\nCheck individual panels for results as they complete.\n\nOr run via CLI:\npython cli.py full ${target}`);
+  const btn = document.getElementById('fullScanBtn');
+  const resultDiv = document.getElementById('fullScanResult');
+  if (btn) btn.disabled = true;
+  if (resultDiv) { resultDiv.style.display = 'block'; resultDiv.innerHTML = '<div style="color:var(--cyan);padding:16px">Running full scan... this may take a few minutes.</div>'; }
+
+  try {
+    const r = await fetch(`${API}/scan/full`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ target })
+    });
+    const { job_id } = await r.json();
+
+    await pollJob(job_id, (result) => {
+      if (!resultDiv) return;
+      const sections = [];
+      if (result.ports) sections.push(`<div style="margin-bottom:12px"><div style="color:var(--cyan);font-size:11px;text-transform:uppercase;margin-bottom:6px">Open Ports</div><div style="color:var(--text)">${(result.ports.open_ports||[]).map(p=>`<span style="background:var(--bg3);border:1px solid var(--border);border-radius:3px;padding:3px 8px;margin:2px;display:inline-block">${p.port}/${p.service||'?'}</span>`).join('')||'None found'}</div></div>`);
+      if (result.web) sections.push(`<div style="margin-bottom:12px"><div style="color:var(--cyan);font-size:11px;text-transform:uppercase;margin-bottom:6px">Web Scan</div><div style="color:var(--text)">Status: ${result.web.status_code||'N/A'} | Technologies: ${(result.web.technologies||[]).join(', ')||'None'}</div></div>`);
+      if (result.recon) sections.push(`<div style="margin-bottom:12px"><div style="color:var(--cyan);font-size:11px;text-transform:uppercase;margin-bottom:6px">Recon</div><div style="color:var(--text)">Subdomains: ${(result.recon.subdomains||[]).length} found</div></div>`);
+      const vulnTypes = ['sqli','xss','lfi'];
+      vulnTypes.forEach(t => { if (result[t]) sections.push(`<div style="margin-bottom:12px"><div style="color:var(--yellow);font-size:11px;text-transform:uppercase;margin-bottom:6px">${t.toUpperCase()} Results</div><div style="color:var(--text)">${result[t].length} parameter(s) tested</div></div>`); });
+      if (result.ssl) sections.push(`<div style="margin-bottom:12px"><div style="color:var(--cyan);font-size:11px;text-transform:uppercase;margin-bottom:6px">SSL/TLS</div><div style="color:var(--text)">Grade: <span style="color:${result.ssl.grade==='A'?'var(--green)':'var(--yellow)'};font-weight:bold">${result.ssl.grade||'N/A'}</span></div></div>`);
+      resultDiv.innerHTML = `<div style="padding:16px">${sections.join('')}</div>`;
+      stats.scans++;
+    });
+  } catch(e) {
+    if (resultDiv) resultDiv.innerHTML = `<div style="color:var(--red);padding:16px">Error: ${e.message}</div>`;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 // ── Init ──

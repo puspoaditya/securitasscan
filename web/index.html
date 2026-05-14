@@ -822,8 +822,11 @@ function updateStats(vulns = 0, ports = 0, host = '') {
 
 // ── Port Scanner ──
 async function runPortScan() {
-  const target = document.getElementById('portTarget').value.trim();
+  let target = document.getElementById('portTarget').value.trim();
   if (!target) return alert('Enter a target');
+  // Strip protocol and path — keep only hostname/IP
+  try { target = new URL(target.includes('://') ? target : 'http://' + target).hostname; } catch(e) {}
+  document.getElementById('portTarget').value = target;
   if (!await checkAPI()) return;
 
   addHistory('PORT', target);

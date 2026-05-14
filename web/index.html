@@ -828,6 +828,7 @@ async function runPortScan() {
 
   addHistory('PORT', target);
   const content = document.getElementById('portResultsContent');
+  document.getElementById('portResults').style.display = 'block';
   const startTime = Date.now();
 
   content.innerHTML = `

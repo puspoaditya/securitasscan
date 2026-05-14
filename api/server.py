@@ -64,7 +64,17 @@ def create_app():
 
     def create_job(func, *args, **kwargs) -> str:
         job_id = str(uuid.uuid4())[:8]
-        jobs[job_id] = {"status": "queued", "result": None, "error": None}
+        jobs[job_id] = {"status": "queued", "result": None, "error": None, "progress": None}
+        t = threading.Thread(target=run_job, args=(job_id, func, *args), kwargs=kwargs, daemon=True)
+        t.start()
+        return job_id
+
+    def create_job_with_progress(func, *args, **kwargs) -> str:
+        job_id = str(uuid.uuid4())[:8]
+        jobs[job_id] = {"status": "queued", "result": None, "error": None, "progress": None}
+        def progress_cb(current, total):
+            jobs[job_id]["progress"] = {"current": current, "total": total}
+        kwargs["callback"] = progress_cb
         t = threading.Thread(target=run_job, args=(job_id, func, *args), kwargs=kwargs, daemon=True)
         t.start()
         return job_id
@@ -113,7 +123,7 @@ def create_app():
         else:
             ports = TOP_PORTS
 
-        job_id = create_job(
+        job_id = create_job_with_progress(
             scan_ports,
             target=target,
             ports=ports,

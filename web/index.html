@@ -826,8 +826,29 @@ async function runPortScan() {
   if (!target) return alert('Enter a target');
   if (!await checkAPI()) return;
 
-  showLoader('portResults', 'Scanning ports...');
   addHistory('PORT', target);
+  const content = document.getElementById('portResultsContent');
+  const startTime = Date.now();
+
+  content.innerHTML = `
+    <div id="portLiveStatus" style="font-family:var(--font-mono);font-size:12px;padding:4px 0">
+      <div style="color:var(--cyan);margin-bottom:10px">&#9654; Scanning <span style="color:var(--yellow)">${target}</span>...</div>
+      <div style="display:flex;gap:32px;margin-bottom:12px">
+        <div>Checked: <span id="liveChecked" style="color:var(--cyan);font-weight:bold">0</span> / <span id="liveTotal" style="color:var(--muted)">?</span></div>
+        <div>Open: <span id="liveOpen" style="color:var(--green);font-weight:bold">0</span></div>
+        <div>Elapsed: <span id="liveElapsed" style="color:var(--muted)">0s</span></div>
+        <div>Progress: <span id="livePct" style="color:var(--yellow)">0%</span></div>
+      </div>
+      <div style="background:var(--bg3);border-radius:4px;height:6px;overflow:hidden;margin-bottom:12px">
+        <div id="liveBar" style="height:100%;width:0%;background:linear-gradient(90deg,var(--cyan),var(--purple));transition:width 0.3s ease"></div>
+      </div>
+      <div id="liveOpenList" style="color:var(--green);font-size:11px;line-height:1.8"></div>
+    </div>`;
+
+  const elapsedTimer = setInterval(() => {
+    const el = document.getElementById('liveElapsed');
+    if (el) el.textContent = ((Date.now() - startTime) / 1000).toFixed(1) + 's';
+  }, 200);
 
   try {
     const mode = document.getElementById('portMode').value;
@@ -842,10 +863,22 @@ async function runPortScan() {
     const { job_id } = await r.json();
 
     await pollJob(job_id, (result) => {
+      clearInterval(elapsedTimer);
       renderPortResults(result);
       updateStats(0, result.open_ports.length, target);
+    }, (job) => {
+      // live progress update
+      const p = job.progress;
+      if (!p) return;
+      const pct = Math.round(p.current / p.total * 100);
+      const el = (id) => document.getElementById(id);
+      if (el('liveChecked')) el('liveChecked').textContent = p.current.toLocaleString();
+      if (el('liveTotal'))   el('liveTotal').textContent   = p.total.toLocaleString();
+      if (el('livePct'))     el('livePct').textContent     = pct + '%';
+      if (el('liveBar'))     el('liveBar').style.width     = pct + '%';
     });
   } catch(e) {
+    clearInterval(elapsedTimer);
     document.getElementById('portResultsContent').innerHTML = `<div class="term-err">Error: ${e.message}</div>`;
   }
 }

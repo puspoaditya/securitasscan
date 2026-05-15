@@ -4,3 +4,4 @@ requests>=2.31.0
 python-whois>=0.9.4
 dnspython>=2.6.0
 gunicorn>=21.2.0
+playwright>=1.40.0

@@ -474,6 +474,12 @@
     <div class="nav-item" data-panel="binary" onclick="showPanel('binary',this)">
       <span class="nav-icon">◧</span> Binary Scan
     </div>
+    <div class="nav-item" data-panel="breach" onclick="showPanel('breach',this)">
+      <span class="nav-icon">⚡</span> Breach Check
+    </div>
+    <div class="nav-item" data-panel="nuclei" onclick="showPanel('nuclei',this)">
+      <span class="nav-icon">☢</span> Nuclei Scan
+    </div>
   </nav>
   <div class="sidebar-footer">
     For authorized testing only.<br>
@@ -571,8 +577,9 @@
             <input type="text" id="customPorts" placeholder="80,443,8080,8443,3306">
           </div>
         </div>
-        <div style="display:flex;gap:10px;align-items:center">
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
           <button class="btn btn-primary" onclick="runPortScan()">▶ Scan Ports</button>
+          <button class="btn" style="background:var(--bg3);border:1px solid var(--border)" onclick="runShodan()">🔍 Shodan Lookup</button>
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--muted);font-size:12px">
             <input type="checkbox" id="noBanners" style="width:auto"> Skip banner grabbing
           </label>
@@ -582,6 +589,14 @@
       <div class="card" id="portResults" style="display:none">
         <div class="card-title" id="portResultsTitle">Results</div>
         <div id="portResultsContent"></div>
+      </div>
+
+      <div class="card" id="shodanResults" style="display:none">
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+          <span>🔍 Shodan InternetDB</span>
+          <span id="shodanBadge" style="font-size:11px;color:var(--muted)"></span>
+        </div>
+        <div id="shodanContent"></div>
       </div>
     </div>
 
@@ -595,8 +610,9 @@
             <input type="text" id="webUrl" placeholder="https://target.com">
           </div>
         </div>
-        <div style="display:flex;gap:10px;align-items:center">
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
           <button class="btn btn-primary" onclick="runWebScan()">▶ Scan Web App</button>
+          <button class="btn" style="background:var(--bg3);border:1px solid var(--border)" onclick="runScreenshot()">📷 Screenshot</button>
           <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--muted);font-size:12px">
             <input type="checkbox" id="noFuzz" style="width:auto"> Skip directory fuzzing
           </label>
@@ -606,6 +622,14 @@
       <div class="card" id="webResults" style="display:none">
         <div class="card-title">Web Scan Results</div>
         <div id="webResultsContent"></div>
+      </div>
+
+      <div class="card" id="screenshotResults" style="display:none">
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+          <span>📷 Screenshot</span>
+          <div id="screenshotMeta" style="font-size:11px;color:var(--muted)"></div>
+        </div>
+        <div id="screenshotContent"></div>
       </div>
 
       <div class="card" id="cveResults" style="display:none">
@@ -735,6 +759,87 @@
       <div class="card" id="binaryResults" style="display:none">
         <div class="card-title">Binary Analysis Results</div>
         <div id="binaryResultsContent"></div>
+      </div>
+    </div>
+
+    <!-- ── Breach Checker ── -->
+    <div class="panel" id="panel-breach">
+      <div class="card">
+        <div class="card-title">⚡ Breach Checker</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+          <!-- Email -->
+          <div>
+            <div style="color:var(--muted);font-size:11px;text-transform:uppercase;margin-bottom:8px">Email Lookup</div>
+            <div class="form-group" style="margin-bottom:8px">
+              <input type="email" id="breachEmail" placeholder="target@email.com">
+            </div>
+            <div class="form-group" style="margin-bottom:8px">
+              <input type="text" id="hibpKey" placeholder="HIBP API Key (optional — get free at haveibeenpwned.com)">
+            </div>
+            <button class="btn btn-primary" onclick="runBreachEmail()">Check Email</button>
+          </div>
+          <!-- Password -->
+          <div>
+            <div style="color:var(--muted);font-size:11px;text-transform:uppercase;margin-bottom:8px">Password Check</div>
+            <div class="form-group" style="margin-bottom:8px">
+              <input type="password" id="breachPassword" placeholder="Enter password to check">
+            </div>
+            <div style="color:var(--muted);font-size:10px;margin-bottom:8px">Uses k-Anonymity — full password is NEVER sent</div>
+            <button class="btn btn-primary" onclick="runBreachPassword()">Check Password</button>
+          </div>
+        </div>
+        <!-- Domain -->
+        <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
+          <div style="color:var(--muted);font-size:11px;text-transform:uppercase;margin-bottom:8px">Domain Breach Lookup (no API key needed)</div>
+          <div style="display:flex;gap:10px;align-items:center">
+            <input type="text" id="breachDomain" placeholder="example.com" style="flex:1">
+            <button class="btn btn-primary" onclick="runBreachDomain()">Check Domain</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="breachResults" style="display:none">
+        <div class="card-title" id="breachResultsTitle">Breach Results</div>
+        <div id="breachResultsContent"></div>
+      </div>
+    </div>
+
+    <!-- ── Nuclei ── -->
+    <div class="panel" id="panel-nuclei">
+      <div class="card">
+        <div class="card-title">☢ Nuclei Scanner</div>
+        <div style="color:var(--muted);font-size:11px;margin-bottom:16px">Runs thousands of community templates against a target. Nuclei binary auto-downloaded on first use.</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Target URL</label>
+            <input type="text" id="nucleiTarget" placeholder="https://target.com">
+          </div>
+          <div class="form-group" style="max-width:200px">
+            <label>Severity</label>
+            <select id="nucleiSeverity">
+              <option value="critical">Critical only</option>
+              <option value="high,critical">High + Critical</option>
+              <option value="medium,high,critical" selected>Medium → Critical</option>
+              <option value="low,medium,high,critical">Low → Critical</option>
+              <option value="info,low,medium,high,critical">All</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group" style="margin-bottom:16px">
+          <label>Template Tags (comma-separated, leave empty for default)</label>
+          <input type="text" id="nucleiTags" placeholder="cve,misconfig,exposure,default-login,takeover">
+        </div>
+        <div style="display:flex;gap:10px">
+          <button class="btn btn-primary" onclick="runNuclei()">☢ Run Nuclei</button>
+          <button class="btn" style="background:var(--bg3);border:1px solid var(--border)" onclick="downloadNuclei()">⬇ Download Nuclei Binary</button>
+        </div>
+      </div>
+      <div class="card" id="nucleiResults" style="display:none">
+        <div class="card-title" style="display:flex;justify-content:space-between">
+          <span>Nuclei Results</span>
+          <span id="nucleiBadge" style="font-size:11px;color:var(--muted)"></span>
+        </div>
+        <div id="nucleiContent"></div>
       </div>
     </div>
 
@@ -1111,6 +1216,102 @@ function renderVulnResults(data, type) {
     </div>`;
 }
 
+// ── Shodan Lookup ──
+async function runShodan() {
+  let target = document.getElementById('portTarget').value.trim();
+  try { target = new URL(target.includes('://') ? target : 'http://' + target).hostname; } catch(e) {}
+  if (!target) return alert('Enter a target first');
+  if (!await checkAPI()) return;
+
+  const card = document.getElementById('shodanResults');
+  const content = document.getElementById('shodanContent');
+  const badge = document.getElementById('shodanBadge');
+  card.style.display = 'block';
+  content.innerHTML = '<div style="color:var(--cyan);font-size:12px;padding:8px 0">Querying Shodan InternetDB...</div>';
+
+  try {
+    const r = await fetch(`${API}/scan/shodan`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ target })
+    });
+    const { job_id } = await r.json();
+    await pollJob(job_id, (d) => {
+      if (d.error) { content.innerHTML = `<div style="color:var(--red);font-size:12px">${d.error}</div>`; return; }
+      if (badge) badge.textContent = `${d.open_port_count} ports | ${d.vuln_count} CVEs`;
+      const vulnHtml = d.vulns?.length ? `
+        <div style="margin-top:12px">
+          <div style="color:var(--red);font-size:11px;text-transform:uppercase;margin-bottom:6px">Known CVEs (${d.vulns.length})</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">
+            ${d.vulns.map(v => `<span style="background:var(--bg3);border:1px solid var(--red);color:var(--red);padding:2px 8px;border-radius:3px;font-size:11px">${v}</span>`).join('')}
+          </div>
+        </div>` : '<div style="color:var(--green);font-size:12px;margin-top:8px">✓ No known CVEs in Shodan database</div>';
+      content.innerHTML = `
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px">
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:12px">
+            <div style="color:var(--muted);font-size:10px;text-transform:uppercase;margin-bottom:4px">IP</div>
+            <div style="color:var(--cyan)">${d.ip}</div>
+          </div>
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:12px">
+            <div style="color:var(--muted);font-size:10px;text-transform:uppercase;margin-bottom:4px">Open Ports</div>
+            <div style="color:var(--green)">${(d.ports||[]).join(', ') || 'None'}</div>
+          </div>
+          <div style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:12px">
+            <div style="color:var(--muted);font-size:10px;text-transform:uppercase;margin-bottom:4px">Tags</div>
+            <div style="color:var(--yellow)">${(d.tags||[]).join(', ') || 'None'}</div>
+          </div>
+        </div>
+        ${d.hostnames?.length ? `<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Hostnames: ${d.hostnames.join(', ')}</div>` : ''}
+        ${d.cpes?.length ? `<div style="font-size:11px;color:var(--purple);margin-bottom:8px">CPEs: ${d.cpes.slice(0,5).join(' | ')}</div>` : ''}
+        ${vulnHtml}`;
+      storeResult('SHODAN', target, d);
+    });
+  } catch(e) {
+    content.innerHTML = `<div style="color:var(--red);font-size:12px">Error: ${e.message}</div>`;
+  }
+}
+
+// ── Screenshot ──
+async function runScreenshot() {
+  let url = document.getElementById('webUrl').value.trim();
+  if (!url) return alert('Enter a URL first');
+  if (!url.startsWith('http')) url = 'https://' + url;
+  if (!await checkAPI()) return;
+
+  const card = document.getElementById('screenshotResults');
+  const content = document.getElementById('screenshotContent');
+  const meta = document.getElementById('screenshotMeta');
+  card.style.display = 'block';
+  content.innerHTML = '<div style="color:var(--cyan);font-size:12px;padding:8px 0">Launching headless browser... (~15s)</div>';
+
+  try {
+    const r = await fetch(`${API}/scan/screenshot`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ url })
+    });
+    const { job_id } = await r.json();
+    await pollJob(job_id, (result) => {
+      if (result.error) {
+        content.innerHTML = `<div style="color:var(--red);font-size:12px">${result.error}</div>`;
+        return;
+      }
+      if (meta) meta.textContent = `${result.title || 'No title'} | Load: ${result.load_time_ms}ms`;
+      if (result.screenshot_b64) {
+        content.innerHTML = `
+          <div style="margin-bottom:10px">
+            <a href="data:image/png;base64,${result.screenshot_b64}" download="screenshot_${Date.now()}.png"
+               style="color:var(--cyan);font-size:11px;text-decoration:none">⬇ Download PNG</a>
+            ${result.final_url !== url ? `<span style="color:var(--muted);font-size:11px;margin-left:16px">Redirected → ${result.final_url}</span>` : ''}
+          </div>
+          <img src="data:image/png;base64,${result.screenshot_b64}"
+               style="width:100%;border-radius:4px;border:1px solid var(--border)" />`;
+        storeResult('SCREENSHOT', url, { url, title: result.title, load_time_ms: result.load_time_ms });
+      }
+    });
+  } catch(e) {
+    content.innerHTML = `<div style="color:var(--red);font-size:12px">Error: ${e.message}</div>`;
+  }
+}
+
 // ── CVE Lookup ──
 async function runCveLookup(technologies, serverHeader = '') {
   const cveCard = document.getElementById('cveResults');
@@ -1416,6 +1617,96 @@ async function runFullScan() {
   }
 }
 
+// ── Breach Checker ──
+function showBreachResult(title, html) {
+  document.getElementById('breachResults').style.display = 'block';
+  document.getElementById('breachResultsTitle').textContent = title;
+  document.getElementById('breachResultsContent').innerHTML = html;
+}
+
+async function runBreachEmail() {
+  const email = document.getElementById('breachEmail').value.trim();
+  const apiKey = document.getElementById('hibpKey').value.trim();
+  if (!email) return alert('Enter an email address');
+  if (!await checkAPI()) return;
+  showBreachResult('Email Breach Results', '<div style="color:var(--cyan);font-size:12px;padding:8px 0">Checking email...</div>');
+  try {
+    const r = await fetch(`${API}/scan/breach/email`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ email, api_key: apiKey })
+    });
+    const { job_id } = await r.json();
+    await pollJob(job_id, (d) => {
+      if (d.note && !d.checked) { showBreachResult('Email Breach Results', `<div style="color:var(--yellow);font-size:12px;padding:8px 0">${d.note}</div>`); return; }
+      if (!d.breach_count) { showBreachResult('Email Breach Results', `<div style="color:var(--green);font-size:12px;padding:8px 0">✓ No breaches found for ${email}${d.note ? '<br><span style="color:var(--muted)">' + d.note + '</span>' : ''}</div>`); return; }
+      const html = `
+        <div style="color:var(--red);font-size:13px;margin-bottom:16px">⚠ Found in ${d.breach_count} breach(es)</div>
+        ${d.data_classes?.length ? `<div style="margin-bottom:12px"><span style="color:var(--muted);font-size:11px">Exposed data: </span>${d.data_classes.map(dc => `<span style="background:var(--bg3);border:1px solid var(--border);padding:2px 8px;border-radius:3px;font-size:11px;margin:2px;display:inline-block">${dc}</span>`).join('')}</div>` : ''}
+        ${d.most_recent ? `<div style="color:var(--muted);font-size:11px;margin-bottom:12px">Most recent: ${d.most_recent}</div>` : ''}
+        ${d.breaches.map(b => `<div style="background:var(--bg3);border:1px solid var(--border);border-left:3px solid var(--red);border-radius:4px;padding:12px;margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+            <span style="color:var(--cyan);font-weight:bold">${b.name}</span>
+            <span style="color:var(--muted);font-size:11px">${b.breach_date || ''}</span>
+          </div>
+          <div style="color:var(--muted);font-size:11px">${b.domain || ''} | ${(b.pwn_count||0).toLocaleString()} accounts</div>
+          <div style="color:var(--text);font-size:11px;margin-top:4px">${b.data_classes?.join(', ') || ''}</div>
+        </div>`).join('')}`;
+      showBreachResult('Email Breach Results', html);
+      storeResult('BREACH_EMAIL', email, d);
+    });
+  } catch(e) { showBreachResult('Email Breach Results', `<div style="color:var(--red)">${e.message}</div>`); }
+}
+
+async function runBreachPassword() {
+  const pwd = document.getElementById('breachPassword').value;
+  if (!pwd) return alert('Enter a password');
+  if (!await checkAPI()) return;
+  showBreachResult('Password Check', '<div style="color:var(--cyan);font-size:12px;padding:8px 0">Checking via k-Anonymity...</div>');
+  try {
+    const r = await fetch(`${API}/scan/breach/password`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ password: pwd })
+    });
+    const { job_id } = await r.json();
+    await pollJob(job_id, (d) => {
+      if (!d.checked) { showBreachResult('Password Check', `<div style="color:var(--yellow)">${d.error || 'Check failed'}</div>`); return; }
+      const color = d.pwned ? 'var(--red)' : 'var(--green)';
+      showBreachResult('Password Check', `
+        <div style="color:${color};font-size:14px;font-weight:bold;margin-bottom:8px">${d.pwned ? '⚠ PWNED' : '✓ SAFE'}</div>
+        <div style="color:var(--text);font-size:12px">${d.message}</div>
+        ${d.pwned ? `<div style="color:var(--muted);font-size:11px;margin-top:8px">Severity: <span style="color:var(--red)">${d.severity}</span></div>` : ''}
+        <div style="color:var(--muted);font-size:10px;margin-top:12px">Note: Your full password was never sent. Only first 5 chars of SHA1 hash were used (k-Anonymity model).</div>`);
+    });
+  } catch(e) { showBreachResult('Password Check', `<div style="color:var(--red)">${e.message}</div>`); }
+}
+
+async function runBreachDomain() {
+  const domain = document.getElementById('breachDomain').value.trim();
+  if (!domain) return alert('Enter a domain');
+  if (!await checkAPI()) return;
+  showBreachResult('Domain Breach Results', '<div style="color:var(--cyan);font-size:12px;padding:8px 0">Checking domain...</div>');
+  try {
+    const r = await fetch(`${API}/scan/breach/domain`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ domain })
+    });
+    const { job_id } = await r.json();
+    await pollJob(job_id, (d) => {
+      if (!d.breach_count) { showBreachResult('Domain Breach Results', `<div style="color:var(--green);font-size:12px">✓ No breaches found for ${domain}</div>`); return; }
+      const html = `<div style="color:var(--red);font-size:13px;margin-bottom:16px">Found ${d.breach_count} breach(es) involving ${domain}</div>
+        ${d.breaches.map(b => `<div style="background:var(--bg3);border:1px solid var(--border);border-left:3px solid var(--yellow);border-radius:4px;padding:12px;margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between">
+            <span style="color:var(--cyan);font-weight:bold">${b.name}</span>
+            <span style="color:var(--muted);font-size:11px">${b.breach_date||''}</span>
+          </div>
+          <div style="color:var(--muted);font-size:11px">${(b.pwn_count||0).toLocaleString()} accounts | ${b.data_classes?.join(', ')||''}</div>
+        </div>`).join('')}`;
+      showBreachResult('Domain Breach Results', html);
+      storeResult('BREACH_DOMAIN', domain, d);
+    });
+  } catch(e) { showBreachResult('Domain Breach Results', `<div style="color:var(--red)">${e.message}</div>`); }
+}
+
 // ── Subdomain Takeover ──
 async function runTakeoverCheck(subdomains) {
   const card = document.getElementById('takeoverResults');
@@ -1452,6 +1743,61 @@ async function runTakeoverCheck(subdomains) {
   } catch(e) {
     content.innerHTML = `<div style="color:var(--red);font-size:12px">Takeover check failed: ${e.message}</div>`;
   }
+}
+
+// ── Nuclei ──
+async function downloadNuclei() {
+  const btn = event.target; btn.disabled = true; btn.textContent = 'Downloading...';
+  try {
+    const r = await fetch(`${API.replace('/api','')}/api/nuclei/download`, { method: 'POST' });
+    const d = await r.json();
+    alert(d.success ? `✓ Nuclei downloaded to: ${d.path}` : `Failed: ${d.error}`);
+  } catch(e) { alert('Error: ' + e.message); }
+  finally { btn.disabled = false; btn.textContent = '⬇ Download Nuclei Binary'; }
+}
+
+async function runNuclei() {
+  let target = document.getElementById('nucleiTarget').value.trim();
+  if (!target) return alert('Enter a target URL');
+  if (!target.startsWith('http')) target = 'https://' + target;
+  if (!await checkAPI()) return;
+
+  const card = document.getElementById('nucleiResults');
+  const content = document.getElementById('nucleiContent');
+  const badge = document.getElementById('nucleiBadge');
+  card.style.display = 'block';
+  const severity = document.getElementById('nucleiSeverity').value;
+  const tags = document.getElementById('nucleiTags').value.trim().split(',').map(t => t.trim()).filter(Boolean);
+  content.innerHTML = '<div style="color:var(--cyan);font-size:12px;padding:8px 0">Running Nuclei templates... (may take 2-5 min)</div>';
+
+  try {
+    const r = await fetch(`${API}/scan/nuclei`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ target, severity, templates: tags })
+    });
+    const { job_id } = await r.json();
+    await pollJob(job_id, (d) => {
+      if (d.error && !d.findings?.length) {
+        content.innerHTML = `<div style="color:var(--red);font-size:12px">${d.error}<br>${d.install_hint || ''}</div>`; return;
+      }
+      if (badge) badge.textContent = `${d.total} findings | C:${d.critical} H:${d.high} M:${d.medium}`;
+      if (!d.findings?.length) { content.innerHTML = '<div style="color:var(--green);font-size:12px;padding:8px 0">✓ No vulnerabilities found.</div>'; return; }
+      const sevColor = { CRITICAL: 'var(--red)', HIGH: 'var(--red)', MEDIUM: 'var(--yellow)', LOW: 'var(--cyan)', INFO: 'var(--muted)' };
+      content.innerHTML = d.findings.map(f => `
+        <div style="background:var(--bg3);border:1px solid var(--border);border-left:3px solid ${sevColor[f.severity]||'var(--muted)'};border-radius:4px;padding:12px;margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+            <span style="color:var(--cyan);font-weight:bold;font-size:12px">${f.name}</span>
+            <span style="background:${sevColor[f.severity]};color:#000;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:bold">${f.severity}</span>
+          </div>
+          <div style="color:var(--yellow);font-size:11px;margin-bottom:4px">${f.matched_at}</div>
+          <div style="color:var(--text);font-size:11px">${f.description}</div>
+          ${f.tags?.length ? `<div style="color:var(--muted);font-size:10px;margin-top:4px">${f.tags.join(' | ')}</div>` : ''}
+          ${f.reference ? `<a href="${f.reference}" style="color:var(--cyan);font-size:10px" target="_blank">${f.reference}</a>` : ''}
+        </div>`).join('');
+      storeResult('NUCLEI', target, d);
+      updateStats(d.critical + d.high);
+    });
+  } catch(e) { content.innerHTML = `<div style="color:var(--red)">Error: ${e.message}</div>`; }
 }
 
 // ── Report Export ──

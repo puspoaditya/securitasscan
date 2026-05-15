@@ -345,6 +345,70 @@ def create_app():
         save_scan(job_id, "FULL_SCAN", target)
         return jsonify({"job_id": job_id, "message": "Full scan started"})
 
+    # Email / Password Breach Checker
+    @app.route("/api/scan/breach/email", methods=["POST"])
+    @rate_limited
+    def api_breach_email():
+        from core.breach_checker import check_email_breaches
+        data = request.json or {}
+        email = data.get("email", "")
+        if not email:
+            return jsonify({"error": "email required"}), 400
+        api_key = os.environ.get("HIBP_API_KEY", data.get("api_key", ""))
+        job_id = create_job(check_email_breaches, email=email, hibp_api_key=api_key)
+        save_scan(job_id, "BREACH_EMAIL", email)
+        return jsonify({"job_id": job_id, "message": "Email breach check started"})
+
+    @app.route("/api/scan/breach/password", methods=["POST"])
+    @rate_limited
+    def api_breach_password():
+        from core.breach_checker import check_password_pwned
+        data = request.json or {}
+        password = data.get("password", "")
+        if not password:
+            return jsonify({"error": "password required"}), 400
+        job_id = create_job(check_password_pwned, password=password)
+        save_scan(job_id, "BREACH_PWD", "***")
+        return jsonify({"job_id": job_id, "message": "Password check started"})
+
+    @app.route("/api/scan/breach/domain", methods=["POST"])
+    @rate_limited
+    def api_breach_domain():
+        from core.breach_checker import check_domain_breaches
+        data = request.json or {}
+        domain = data.get("domain", "")
+        if not domain:
+            return jsonify({"error": "domain required"}), 400
+        job_id = create_job(check_domain_breaches, domain=domain)
+        save_scan(job_id, "BREACH_DOMAIN", domain)
+        return jsonify({"job_id": job_id, "message": "Domain breach check started"})
+
+    # Shodan InternetDB Lookup
+    @app.route("/api/scan/shodan", methods=["POST"])
+    @rate_limited
+    def api_shodan():
+        from core.shodan_lookup import lookup_host
+        data = request.json or {}
+        target = data.get("target", "")
+        if not target:
+            return jsonify({"error": "target required"}), 400
+        job_id = create_job(lookup_host, target=target)
+        save_scan(job_id, "SHODAN", target)
+        return jsonify({"job_id": job_id, "message": "Shodan lookup started"})
+
+    # Screenshot
+    @app.route("/api/scan/screenshot", methods=["POST"])
+    @rate_limited
+    def api_screenshot():
+        from core.screenshot import take_screenshot
+        data = request.json or {}
+        url = data.get("url", "")
+        if not url:
+            return jsonify({"error": "url required"}), 400
+        job_id = create_job(take_screenshot, url=url)
+        save_scan(job_id, "SCREENSHOT", url)
+        return jsonify({"job_id": job_id, "message": "Screenshot started"})
+
     # Subdomain Takeover
     @app.route("/api/scan/takeover", methods=["POST"])
     @rate_limited
@@ -357,6 +421,27 @@ def create_app():
         job_id = create_job(scan_subdomain_takeover, subdomains=subdomains)
         save_scan(job_id, "TAKEOVER", f"{len(subdomains)} subdomains")
         return jsonify({"job_id": job_id, "message": "Takeover check started"})
+
+    # Nuclei Scanner
+    @app.route("/api/scan/nuclei", methods=["POST"])
+    @rate_limited
+    def api_nuclei():
+        from core.nuclei_scan import run_nuclei
+        data = request.json or {}
+        target = data.get("target", "")
+        if not target:
+            return jsonify({"error": "target required"}), 400
+        templates = data.get("templates", [])
+        severity = data.get("severity", "medium,high,critical")
+        job_id = create_job(run_nuclei, target=target, templates=templates, severity=severity)
+        save_scan(job_id, "NUCLEI", target)
+        return jsonify({"job_id": job_id, "message": "Nuclei scan started"})
+
+    @app.route("/api/nuclei/download", methods=["POST"])
+    def api_nuclei_download():
+        from core.nuclei_scan import download_nuclei
+        result = download_nuclei()
+        return jsonify(result)
 
     # CVE Lookup
     @app.route("/api/scan/cve", methods=["POST"])

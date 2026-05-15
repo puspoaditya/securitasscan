@@ -530,7 +530,13 @@
       <div class="card" id="fullScanResult" style="display:none"></div>
 
       <div class="card">
-        <div class="card-title">📋 Scan History</div>
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+          <span>📋 Scan History</span>
+          <div style="display:flex;gap:8px">
+            <button class="btn" style="font-size:11px;padding:4px 12px;background:var(--bg3);border:1px solid var(--border)" onclick="exportJSON()">⬇ JSON</button>
+            <button class="btn" style="font-size:11px;padding:4px 12px;background:var(--bg3);border:1px solid var(--border)" onclick="exportHTML()">⬇ HTML Report</button>
+          </div>
+        </div>
         <div id="scanHistory">
           <div style="color: var(--muted); font-size: 12px;">No scans run yet.</div>
         </div>
@@ -600,6 +606,14 @@
       <div class="card" id="webResults" style="display:none">
         <div class="card-title">Web Scan Results</div>
         <div id="webResultsContent"></div>
+      </div>
+
+      <div class="card" id="cveResults" style="display:none">
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+          <span>⚠ CVE Lookup</span>
+          <span id="cveTotalBadge" style="font-size:11px;color:var(--muted)"></span>
+        </div>
+        <div id="cveResultsContent"></div>
       </div>
     </div>
 
@@ -694,6 +708,14 @@
       <div class="card" id="reconResults" style="display:none">
         <div class="card-title">Recon Results</div>
         <div id="reconResultsContent"></div>
+      </div>
+
+      <div class="card" id="takeoverResults" style="display:none">
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+          <span>🎯 Subdomain Takeover Check</span>
+          <span id="takeoverBadge" style="font-size:11px;color:var(--muted)"></span>
+        </div>
+        <div id="takeoverContent"></div>
       </div>
     </div>
 
@@ -800,13 +822,29 @@ function showLoader(containerId, message) {
 
 function addHistory(type, target) {
   history.unshift({ type, target, time: new Date().toLocaleTimeString() });
+  renderHistory(history.slice(0, 10));
+}
+
+function renderHistory(items) {
   const el = document.getElementById('scanHistory');
-  el.innerHTML = history.slice(0, 8).map(h => `
+  if (!items.length) { el.innerHTML = '<div style="color:var(--muted);font-size:12px">No scans run yet.</div>'; return; }
+  const statusColor = { done: 'var(--green)', error: 'var(--red)', running: 'var(--cyan)', queued: 'var(--muted)' };
+  el.innerHTML = items.map(h => `
     <div class="history-item">
-      <div class="history-type">${h.type}</div>
+      <div class="history-type">${h.scan_type || h.type}</div>
       <div class="history-target">${h.target}</div>
-      <div class="history-time">${h.time}</div>
+      <div class="history-time" style="color:${statusColor[h.status] || 'var(--muted)'}">
+        ${h.status ? h.status.toUpperCase() : ''} ${h.time || (h.started_at ? new Date(h.started_at * 1000).toLocaleTimeString() : '')}
+      </div>
     </div>`).join('');
+}
+
+async function loadHistory() {
+  try {
+    const r = await fetch(`${API.replace('/api','')}/api/history?limit=20`);
+    const data = await r.json();
+    if (data.length) renderHistory(data);
+  } catch(e) {}
 }
 
 function updateStats(vulns = 0, ports = 0, host = '') {
@@ -870,6 +908,7 @@ async function runPortScan() {
       clearInterval(elapsedTimer);
       renderPortResults(result);
       updateStats(0, result.open_ports.length, target);
+      storeResult('PORT_SCAN', target, result);
     }, (job) => {
       // live progress update
       const p = job.progress;
@@ -931,6 +970,14 @@ async function runWebScan() {
     await pollJob(job_id, (result) => {
       renderWebResults(result);
       updateStats(0, 0, url);
+      storeResult('WEB_SCAN', url, result);
+      // Auto-trigger CVE lookup if technologies detected
+      const techs = result.technologies || [];
+      const serverHeader = (result.security_headers?.info_leakage || [])
+        .find(h => h.header === 'Server')?.value || '';
+      if (techs.length > 0 || serverHeader) {
+        runCveLookup(techs, serverHeader);
+      }
     });
   } catch(e) {
     document.getElementById('webResultsContent').innerHTML = `<div class="term-err">Error: ${e.message}</div>`;
@@ -1064,6 +1111,60 @@ function renderVulnResults(data, type) {
     </div>`;
 }
 
+// ── CVE Lookup ──
+async function runCveLookup(technologies, serverHeader = '') {
+  const cveCard = document.getElementById('cveResults');
+  const cveContent = document.getElementById('cveResultsContent');
+  const cveBadge = document.getElementById('cveTotalBadge');
+  cveCard.style.display = 'block';
+  cveContent.innerHTML = '<div style="color:var(--cyan);padding:8px 0;font-size:12px">Querying NVD database for CVEs... (may take ~30s)</div>';
+
+  try {
+    const r = await fetch(`${API}/scan/cve`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ technologies, server_header: serverHeader })
+    });
+    const { job_id } = await r.json();
+    await pollJob(job_id, (result) => renderCveResults(result));
+  } catch(e) {
+    cveContent.innerHTML = `<div style="color:var(--red);font-size:12px">CVE lookup failed: ${e.message}</div>`;
+  }
+}
+
+function renderCveResults(data) {
+  const cveContent = document.getElementById('cveResultsContent');
+  const cveBadge = document.getElementById('cveTotalBadge');
+  const sevColor = { CRITICAL: 'var(--red)', HIGH: 'var(--red)', MEDIUM: 'var(--yellow)', LOW: 'var(--cyan)', NONE: 'var(--muted)' };
+  const allEntries = { ...(data.by_technology || {}), ...(data.by_server ? { Server: data.by_server } : {}) };
+  let totalCves = 0;
+  let html = '';
+
+  for (const [tech, cves] of Object.entries(allEntries)) {
+    if (!cves || cves.length === 0) continue;
+    totalCves += cves.length;
+    html += `<div style="margin-bottom:20px">
+      <div style="color:var(--yellow);font-size:11px;text-transform:uppercase;margin-bottom:10px;letter-spacing:1px">${tech} — ${cves.length} CVE(s) found</div>`;
+    for (const cve of cves) {
+      const sc = sevColor[cve.severity] || 'var(--muted)';
+      html += `
+        <div style="background:var(--bg3);border:1px solid var(--border);border-left:3px solid ${sc};border-radius:4px;padding:12px;margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <span style="color:var(--cyan);font-weight:bold;font-size:12px">${cve.id}</span>
+            <span style="background:${sc};color:#000;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:bold">${cve.severity}${cve.score ? ' ' + cve.score : ''}</span>
+          </div>
+          <div style="color:var(--text);font-size:11px;line-height:1.6;margin-bottom:6px">${cve.description}</div>
+          <div style="color:var(--muted);font-size:10px">Published: ${cve.published || 'N/A'}</div>
+        </div>`;
+    }
+    html += '</div>';
+  }
+
+  if (!html) html = '<div style="color:var(--green);font-size:12px;padding:8px 0">✓ No CVEs found for detected technologies.</div>';
+  cveContent.innerHTML = html;
+  if (cveBadge) cveBadge.textContent = totalCves > 0 ? `${totalCves} CVE(s) found` : 'No CVEs found';
+}
+
 // ── SSL ──
 async function runSSL() {
   const host = document.getElementById('sslHost').value.trim().replace(/https?:\/\//,'').split('/')[0];
@@ -1136,7 +1237,12 @@ async function runRecon() {
       body: JSON.stringify({ domain, brute_subdomains: !document.getElementById('noBrute').checked })
     });
     const { job_id } = await r.json();
-    await pollJob(job_id, renderReconResults);
+    await pollJob(job_id, (result) => {
+      renderReconResults(result);
+      storeResult('RECON', domain, result);
+      const subs = result.subdomains || [];
+      if (subs.length > 0) runTakeoverCheck(subs);
+    });
   } catch(e) {
     document.getElementById('reconResultsContent').innerHTML = `<div class="term-err">Error: ${e.message}</div>`;
   }
@@ -1310,9 +1416,81 @@ async function runFullScan() {
   }
 }
 
+// ── Subdomain Takeover ──
+async function runTakeoverCheck(subdomains) {
+  const card = document.getElementById('takeoverResults');
+  const content = document.getElementById('takeoverContent');
+  const badge = document.getElementById('takeoverBadge');
+  card.style.display = 'block';
+  content.innerHTML = `<div style="color:var(--cyan);font-size:12px;padding:8px 0">Checking ${subdomains.length} subdomains for takeover... (may take ~30s)</div>`;
+
+  try {
+    const r = await fetch(`${API}/scan/takeover`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ subdomains })
+    });
+    const { job_id } = await r.json();
+    await pollJob(job_id, (results) => {
+      if (!results.length) {
+        content.innerHTML = '<div style="color:var(--green);font-size:12px;padding:8px 0">✓ No subdomain takeover vulnerabilities found.</div>';
+        if (badge) badge.textContent = 'Clean';
+        return;
+      }
+      if (badge) badge.textContent = `${results.length} vulnerable`;
+      const sevColor = { HIGH: 'var(--red)', MEDIUM: 'var(--yellow)', LOW: 'var(--cyan)' };
+      content.innerHTML = results.map(r => `
+        <div style="background:var(--bg3);border:1px solid var(--border);border-left:3px solid ${sevColor[r.severity]||'var(--muted)'};border-radius:4px;padding:12px;margin-bottom:8px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+            <span style="color:var(--cyan);font-weight:bold;font-size:12px">${r.subdomain}</span>
+            <span style="background:${sevColor[r.severity]};color:#000;padding:2px 8px;border-radius:3px;font-size:10px;font-weight:bold">${r.severity}</span>
+          </div>
+          <div style="color:var(--yellow);font-size:11px">Service: ${r.service}</div>
+          ${r.cname ? `<div style="color:var(--muted);font-size:11px">CNAME: ${r.cname}</div>` : ''}
+          <div style="color:var(--text);font-size:11px;margin-top:4px">Evidence: "${r.evidence}"</div>
+        </div>`).join('');
+    });
+  } catch(e) {
+    content.innerHTML = `<div style="color:var(--red);font-size:12px">Takeover check failed: ${e.message}</div>`;
+  }
+}
+
+// ── Report Export ──
+const scanStore = {};
+
+function storeResult(type, target, data) {
+  scanStore[type] = { type, target, data, timestamp: new Date().toISOString() };
+}
+
+function exportJSON() {
+  if (!Object.keys(scanStore).length) return alert('No scan results to export yet.');
+  const blob = new Blob([JSON.stringify(scanStore, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `securitasscan_${Date.now()}.json`; a.click();
+}
+
+function exportHTML() {
+  if (!Object.keys(scanStore).length) return alert('No scan results to export yet.');
+  const rows = Object.values(scanStore).map(s => `
+    <section style="margin-bottom:32px;border:1px solid #333;border-radius:6px;padding:20px">
+      <h2 style="color:#00d4ff;margin-top:0">${s.type} — ${s.target}</h2>
+      <p style="color:#888;font-size:12px">Scanned: ${s.timestamp}</p>
+      <pre style="background:#0d1117;color:#c9d1d9;padding:16px;border-radius:4px;font-size:11px;overflow:auto">${JSON.stringify(s.data, null, 2)}</pre>
+    </section>`).join('');
+  const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+    <title>SecuritasScan Report</title>
+    <style>body{background:#080c10;color:#c9d1d9;font-family:monospace;padding:32px;max-width:1100px;margin:0 auto}
+    h1{color:#00d4ff}p{color:#888}</style></head>
+    <body><h1>SecuritasScan Report</h1><p>Generated: ${new Date().toLocaleString()}</p>${rows}</body></html>`;
+  const blob = new Blob([html], { type: 'text/html' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `securitasscan_${Date.now()}.html`; a.click();
+}
+
 // ── Init ──
 checkAPI();
+loadHistory();
 setInterval(checkAPI, 15000);
+setInterval(loadHistory, 30000);
 </script>
 </body>
 </html>

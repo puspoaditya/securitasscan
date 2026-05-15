@@ -9,6 +9,8 @@ import json
 import threading
 import time
 import uuid
+from collections import defaultdict
+from functools import wraps
 
 # Add parent dir to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -21,6 +23,7 @@ except ImportError:
     HAS_FLASK = False
     print("[!] Flask not installed. Run: pip install flask flask-cors")
 
+from core.db import init_db, save_scan, update_scan, get_history
 from core.scanner import scan_ports, TOP_PORTS
 from core.web_scanner import full_web_scan
 from core.recon import full_recon
@@ -32,6 +35,15 @@ from config import API_HOST, API_PORT
 # In-memory job store
 jobs = {}
 
+# Rate limiting store: {ip: [timestamp, ...]}
+_rate_store = defaultdict(list)
+_rate_lock = threading.Lock()
+RATE_LIMIT = 20       # max requests
+RATE_WINDOW = 60      # per N seconds
+
+# Optional API key (set env var SCAN_API_KEY to enable)
+API_KEY = os.environ.get("SCAN_API_KEY", "")
+
 
 def create_app():
     if not HAS_FLASK:
@@ -41,10 +53,34 @@ def create_app():
     web_dir = os.path.join(os.path.abspath(os.path.dirname(os.path.dirname(__file__))), "web")
     app = Flask(__name__, static_folder=web_dir, static_url_path="")
     CORS(app)
+    init_db()
 
     @app.route("/")
     def index():
         return app.send_static_file("index.html")
+
+    # ─────────────────────────
+    # Rate limiting + auth
+    # ─────────────────────────
+
+    def rate_limited(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            # API key check
+            if API_KEY:
+                key = request.headers.get("X-API-Key") or request.args.get("api_key")
+                if key != API_KEY:
+                    return jsonify({"error": "Invalid or missing API key"}), 401
+            # Rate limit by IP
+            ip = request.remote_addr or "unknown"
+            now = time.time()
+            with _rate_lock:
+                _rate_store[ip] = [t for t in _rate_store[ip] if now - t < RATE_WINDOW]
+                if len(_rate_store[ip]) >= RATE_LIMIT:
+                    return jsonify({"error": f"Rate limit exceeded: {RATE_LIMIT} requests per {RATE_WINDOW}s"}), 429
+                _rate_store[ip].append(now)
+            return f(*args, **kwargs)
+        return decorated
 
     # ─────────────────────────
     # Job management
@@ -57,14 +93,24 @@ def create_app():
             result = func(*args, **kwargs)
             jobs[job_id]["result"] = result
             jobs[job_id]["status"] = "done"
+            update_scan(job_id, "done", result=result)
         except Exception as e:
             jobs[job_id]["status"] = "error"
             jobs[job_id]["error"] = str(e)
+            update_scan(job_id, "error", error=str(e))
         jobs[job_id]["finished_at"] = time.time()
 
     def create_job(func, *args, **kwargs) -> str:
         job_id = str(uuid.uuid4())[:8]
         jobs[job_id] = {"status": "queued", "result": None, "error": None, "progress": None}
+        t = threading.Thread(target=run_job, args=(job_id, func, *args), kwargs=kwargs, daemon=True)
+        t.start()
+        return job_id
+
+    def create_tracked_job(func, scan_type: str, target: str, *args, **kwargs) -> str:
+        job_id = str(uuid.uuid4())[:8]
+        jobs[job_id] = {"status": "queued", "result": None, "error": None, "progress": None}
+        save_scan(job_id, scan_type, target)
         t = threading.Thread(target=run_job, args=(job_id, func, *args), kwargs=kwargs, daemon=True)
         t.start()
         return job_id
@@ -87,6 +133,11 @@ def create_app():
     def health():
         return jsonify({"status": "ok", "version": "1.0.0"})
 
+    @app.route("/api/history", methods=["GET"])
+    def api_history():
+        limit = int(request.args.get("limit", 50))
+        return jsonify(get_history(limit))
+
     @app.route("/api/jobs/<job_id>", methods=["GET"])
     def get_job(job_id):
         job = jobs.get(job_id)
@@ -103,6 +154,7 @@ def create_app():
 
     # Port Scanner
     @app.route("/api/scan/ports", methods=["POST"])
+    @rate_limited
     def api_port_scan():
         data = request.json or {}
         target = data.get("target", "")
@@ -130,10 +182,12 @@ def create_app():
             threads=threads,
             grab_banners=grab_banners,
         )
+        save_scan(job_id, "PORT_SCAN", target)
         return jsonify({"job_id": job_id, "message": "Port scan started"})
 
     # Web Scanner
     @app.route("/api/scan/web", methods=["POST"])
+    @rate_limited
     def api_web_scan():
         data = request.json or {}
         url = data.get("url", "")
@@ -144,10 +198,12 @@ def create_app():
 
         fuzz = data.get("fuzz_dirs", True)
         job_id = create_job(full_web_scan, url=url, fuzz_dirs=fuzz)
+        save_scan(job_id, "WEB_SCAN", url)
         return jsonify({"job_id": job_id, "message": "Web scan started"})
 
     # SQLi Scanner
     @app.route("/api/scan/sqli", methods=["POST"])
+    @rate_limited
     def api_sqli():
         data = request.json or {}
         url = data.get("url", "")
@@ -169,10 +225,12 @@ def create_app():
             }
 
         job_id = create_job(run_sqli)
+        save_scan(job_id, "SQLI", url)
         return jsonify({"job_id": job_id, "message": "SQLi scan started"})
 
     # XSS Scanner
     @app.route("/api/scan/xss", methods=["POST"])
+    @rate_limited
     def api_xss():
         data = request.json or {}
         url = data.get("url", "")
@@ -194,10 +252,12 @@ def create_app():
             }
 
         job_id = create_job(run_xss)
+        save_scan(job_id, "XSS", url)
         return jsonify({"job_id": job_id, "message": "XSS scan started"})
 
     # LFI Scanner
     @app.route("/api/scan/lfi", methods=["POST"])
+    @rate_limited
     def api_lfi():
         data = request.json or {}
         url = data.get("url", "")
@@ -205,10 +265,12 @@ def create_app():
             return jsonify({"error": "url required"}), 400
 
         job_id = create_job(scan_url_for_lfi, url=url)
+        save_scan(job_id, "LFI", url)
         return jsonify({"job_id": job_id, "message": "LFI scan started"})
 
     # SSL Checker
     @app.route("/api/scan/ssl", methods=["POST"])
+    @rate_limited
     def api_ssl():
         data = request.json or {}
         hostname = data.get("hostname", "").replace("https://", "").replace("http://", "").split("/")[0]
@@ -217,10 +279,12 @@ def create_app():
             return jsonify({"error": "hostname required"}), 400
 
         job_id = create_job(check_ssl, hostname=hostname, port=port)
+        save_scan(job_id, "SSL", hostname)
         return jsonify({"job_id": job_id, "message": "SSL check started"})
 
     # Recon / OSINT
     @app.route("/api/scan/recon", methods=["POST"])
+    @rate_limited
     def api_recon():
         data = request.json or {}
         domain = data.get("domain", "")
@@ -229,10 +293,12 @@ def create_app():
 
         brute = data.get("brute_subdomains", True)
         job_id = create_job(full_recon, domain=domain, brute_subdomains=brute)
+        save_scan(job_id, "RECON", domain)
         return jsonify({"job_id": job_id, "message": "Recon started"})
 
     # Binary Analysis
     @app.route("/api/scan/binary", methods=["POST"])
+    @rate_limited
     def api_binary():
         if "file" not in request.files:
             return jsonify({"error": "No file uploaded"}), 400
@@ -244,6 +310,7 @@ def create_app():
 
     # Full combined scan
     @app.route("/api/scan/full", methods=["POST"])
+    @rate_limited
     def api_full_scan():
         data = request.json or {}
         target = data.get("target", "")
@@ -275,7 +342,43 @@ def create_app():
             return results
 
         job_id = create_job(run_full)
+        save_scan(job_id, "FULL_SCAN", target)
         return jsonify({"job_id": job_id, "message": "Full scan started"})
+
+    # Subdomain Takeover
+    @app.route("/api/scan/takeover", methods=["POST"])
+    @rate_limited
+    def api_takeover():
+        from core.subdomain_takeover import scan_subdomain_takeover
+        data = request.json or {}
+        subdomains = data.get("subdomains", [])
+        if not subdomains:
+            return jsonify({"error": "subdomains list required"}), 400
+        job_id = create_job(scan_subdomain_takeover, subdomains=subdomains)
+        save_scan(job_id, "TAKEOVER", f"{len(subdomains)} subdomains")
+        return jsonify({"job_id": job_id, "message": "Takeover check started"})
+
+    # CVE Lookup
+    @app.route("/api/scan/cve", methods=["POST"])
+    @rate_limited
+    def api_cve():
+        from core.cve_lookup import lookup_cves, lookup_cves_for_server
+        data = request.json or {}
+        technologies = data.get("technologies", [])
+        server_header = data.get("server_header", "")
+        if not technologies and not server_header:
+            return jsonify({"error": "technologies or server_header required"}), 400
+
+        def run_cve():
+            result = {}
+            if technologies:
+                result["by_technology"] = lookup_cves(technologies)
+            if server_header:
+                result["by_server"] = lookup_cves_for_server(server_header)
+            return result
+
+        job_id = create_job(run_cve)
+        return jsonify({"job_id": job_id, "message": "CVE lookup started"})
 
     return app
 
